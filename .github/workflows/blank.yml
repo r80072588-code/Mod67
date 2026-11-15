@@ -1,0 +1,58 @@
+name: Build mod from zip
+
+# Кинь в корень репозитория один .zip с проектом мода - сборка запустится сама.
+# Можно запустить вручную: вкладка Actions -> Build mod from zip -> Run workflow.
+on:
+  push:
+    paths:
+      - '**.zip'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unpack zip
+        run: |
+          ZIP=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "::error::В корне репозитория нет .zip файла"
+            exit 1
+          fi
+          echo "Распаковываю: $ZIP"
+          mkdir -p _src
+          unzip -q -o "$ZIP" -d _src
+          GRADLE_FILE=$(find _src \( -name build.gradle -o -name build.gradle.kts \) | head -n 1)
+          if [ -z "$GRADLE_FILE" ]; then
+            echo "::error::В zip нет build.gradle - это не проект мода"
+            exit 1
+          fi
+          MOD_DIR=$(dirname "$GRADLE_FILE")
+          echo "Проект мода: $MOD_DIR"
+          echo "MOD_DIR=$MOD_DIR" >> "$GITHUB_ENV"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12'
+
+      - name: Build jar
+        working-directory: ${{ env.MOD_DIR }}
+        run: gradle build --no-daemon
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: mod-jar
+          path: |
+            ${{ env.MOD_DIR }}/build/libs/*.jar
+            !${{ env.MOD_DIR }}/build/libs/*-sources.jar
